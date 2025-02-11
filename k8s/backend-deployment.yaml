@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: REPLACE_ECR_REPO_URL  # Placeholder for ECR image URL
+          image: 992382839514.dkr.ecr.us-east-1.amazonaws.com/backend-repo:latest  # Placeholder for ECR image URL
           ports:
             - containerPort: 5000
           env:
