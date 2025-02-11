@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  selector:
+    app: backend
+  ports:
+    - protocol: TCP
+      port: 80       # Exposes on port 80
+      targetPort: 5000  # Redirects to backend container's port 5000
+  type: ClusterIP  # Internal access within Kubernetes cluster
