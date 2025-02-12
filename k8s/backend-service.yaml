@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  selector:
+    app: backend
+  ports:
+    - protocol: TCP
+      port: 5000       # Exposes on port 5000 (matches backend container port)
+      targetPort: 5000  # Redirects to backend container's port 5000
+  type: ClusterIP  # Remains internal, accessed via Ingress
