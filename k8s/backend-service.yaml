@@ -7,6 +7,6 @@ spec:
     app: backend
   ports:
     - protocol: TCP
-      port: 80       # Exposes on port 80
+      port: 5000       # Exposes on port 5000 (matches backend container port)
       targetPort: 5000  # Redirects to backend container's port 5000
-  type: ClusterIP  # Internal access within Kubernetes cluster
+  type: ClusterIP  # Remains internal, accessed via Ingress
