@@ -28,6 +28,7 @@ async function initializeDB() {
       host: dbConfig.host,
       user: dbConfig.user,
       password: dbConfig.password,
+      database: dbConfig.database,
     });
 
     db.connect((err) => {
@@ -35,32 +36,18 @@ async function initializeDB() {
         console.error("Database connection failed:", err);
       } else {
         console.log("Connected to MySQL RDS");
-        
-        // Create database if not exists
-        db.query(`CREATE DATABASE IF NOT EXISTS ${dbConfig.database}`, (err) => {
-          if (err) console.error("Error creating database:", err);
-          else console.log(`Database '${dbConfig.database}' ready`);
-          
-          // Switch to the created database
-          db.changeUser({ database: dbConfig.database }, (err) => {
-            if (err) console.error("Error selecting database:", err);
-            else {
-              console.log(`Using database: ${dbConfig.database}`);
 
-              // Create tasks table if it doesn't exist
-              const createTableQuery = `
-                CREATE TABLE IF NOT EXISTS tasks (
-                  id INT AUTO_INCREMENT PRIMARY KEY,
-                  title VARCHAR(255) NOT NULL,
-                  description TEXT,
-                  status ENUM('pending', 'in-progress', 'completed') DEFAULT 'pending'
-                )`;
-              db.query(createTableQuery, (err) => {
-                if (err) console.error("Error creating tasks table:", err);
-                else console.log("Tasks table is ready");
-              });
-            }
-          });
+        // Create table if it doesn't exist
+        const createTableQuery = `
+          CREATE TABLE IF NOT EXISTS tasks (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(255) NOT NULL,
+            description TEXT,
+            status ENUM('pending', 'in-progress', 'completed') DEFAULT 'pending'
+          )`;
+        db.query(createTableQuery, (err) => {
+          if (err) console.error("Error creating tasks table:", err);
+          else console.log("Tasks table is ready");
         });
       }
     });
@@ -80,15 +67,28 @@ initializeDB().then((db) => {
     });
   });
 
-  // Add a task
+  // Add a new task
   app.post("/tasks", (req, res) => {
     const { title, description, status } = req.body;
     db.query(
       "INSERT INTO tasks (title, description, status) VALUES (?, ?, ?)",
-      [title, description, status],
+      [title, description, status || "pending"],
       (err, result) => {
         if (err) return res.status(500).send(err);
         res.json({ message: "Task added", id: result.insertId });
+      }
+    );
+  });
+
+  // ✅ Mark a task as completed
+  app.patch("/tasks/:id", (req, res) => {
+    const { status } = req.body;
+    db.query(
+      "UPDATE tasks SET status = ? WHERE id = ?",
+      [status, req.params.id],
+      (err, result) => {
+        if (err) return res.status(500).send(err);
+        res.json({ message: "Task status updated" });
       }
     );
   });

@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: 992382839514.dkr.ecr.us-east-1.amazonaws.com/backend-repo:latest  # Placeholder for ECR image URL
+          image: 992382839514.dkr.ecr.us-east-1.amazonaws.com/backend-repo:latest  # This will be overridden by Jenkins
           ports:
             - containerPort: 5000
           env:
