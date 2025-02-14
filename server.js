@@ -36,16 +36,17 @@ async function initializeDB() {
         console.error("Database connection failed:", err);
       } else {
         console.log("Connected to MySQL RDS");
-        
+
         db.query(`CREATE DATABASE IF NOT EXISTS ${dbConfig.database}`, (err) => {
           if (err) console.error("Error creating database:", err);
           else console.log(`Database '${dbConfig.database}' ready`);
-          
+
           db.changeUser({ database: dbConfig.database }, (err) => {
             if (err) console.error("Error selecting database:", err);
             else {
               console.log(`Using database: ${dbConfig.database}`);
 
+              // Create Table if Not Exists
               const createTableQuery = `
                 CREATE TABLE IF NOT EXISTS tasks (
                   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -60,21 +61,33 @@ async function initializeDB() {
                 if (err) console.error("Error creating tasks table:", err);
                 else console.log("Tasks table is ready");
               });
-              
-              const addColumnsQuery = `
-                ALTER TABLE tasks 
-                ADD COLUMN IF NOT EXISTS time TIME,
-                ADD COLUMN IF NOT EXISTS date DATE,
-                ADD COLUMN IF NOT EXISTS email_id VARCHAR(255);`;
-              db.query(addColumnsQuery, (err) => {
-                if (err) console.error("Error adding missing columns:", err);
-                else console.log("Checked and added missing columns if necessary");
-              });
+
+              // Function to check and add columns if missing
+              const checkAndAddColumn = (columnName, columnDefinition) => {
+                db.query(`SHOW COLUMNS FROM tasks LIKE '${columnName}'`, (err, results) => {
+                  if (err) {
+                    console.error(`Error checking column ${columnName}:`, err);
+                    return;
+                  }
+                  if (results.length === 0) {
+                    db.query(`ALTER TABLE tasks ADD COLUMN ${columnName} ${columnDefinition}`, (err) => {
+                      if (err) console.error(`Error adding column ${columnName}:`, err);
+                      else console.log(`Column ${columnName} added successfully`);
+                    });
+                  }
+                });
+              };
+
+              // Check and add missing columns
+              checkAndAddColumn("time", "TIME");
+              checkAndAddColumn("date", "DATE");
+              checkAndAddColumn("email_id", "VARCHAR(255)");
             }
           });
         });
       }
     });
+
     return db;
   } catch (error) {
     console.error("Error fetching parameters from AWS SSM:", error);
@@ -93,7 +106,7 @@ initializeDB().then((db) => {
     const { title, description, time, date, email_id, status } = req.body;
     db.query(
       "INSERT INTO tasks (title, description, time, date, email_id, status) VALUES (?, ?, ?, ?, ?, ?)",
-      [title, description, time, date, email_id, status],
+      [title, description, time, date, email_id, status || "pending"],
       (err, result) => {
         if (err) return res.status(500).send(err);
         res.json({ message: "Task added", id: result.insertId });
@@ -122,7 +135,7 @@ initializeDB().then((db) => {
         return;
       }
       const now = new Date();
-      results.forEach(task => {
+      results.forEach((task) => {
         const taskDateTime = new Date(`${task.date}T${task.time}`);
         if (taskDateTime - now <= 600000) {
           sendReminderEmail(task.email_id, task.title, task.description);
@@ -132,19 +145,24 @@ initializeDB().then((db) => {
   }
 
   function sendReminderEmail(email, title, description) {
+    if (!email) {
+      console.log("No email provided, skipping reminder.");
+      return;
+    }
+
     let transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
         user: "namraptl25@gmail.com",
-        pass: "N@mrap@tel2511"
-      }
+        pass: "N@mrap@tel2511",
+      },
     });
 
     let mailOptions = {
       from: "your-email@gmail.com",
       to: email,
       subject: "Task Pending Reminder",
-      text: `Your task '${title}' is still pending. Description: ${description}`
+      text: `Your task '${title}' is still pending. Description: ${description}`,
     };
 
     transporter.sendMail(mailOptions, (error, info) => {
