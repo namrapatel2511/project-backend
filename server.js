@@ -2,6 +2,7 @@ const express = require("express");
 const mysql = require("mysql2");
 const cors = require("cors");
 const AWS = require("aws-sdk");
+const nodemailer = require("nodemailer");
 
 AWS.config.update({ region: "us-east-1" });
 const ssm = new AWS.SSM();
@@ -28,7 +29,6 @@ async function initializeDB() {
       host: dbConfig.host,
       user: dbConfig.user,
       password: dbConfig.password,
-      database: dbConfig.database,
     });
 
     db.connect((err) => {
@@ -36,22 +36,45 @@ async function initializeDB() {
         console.error("Database connection failed:", err);
       } else {
         console.log("Connected to MySQL RDS");
+        
+        db.query(`CREATE DATABASE IF NOT EXISTS ${dbConfig.database}`, (err) => {
+          if (err) console.error("Error creating database:", err);
+          else console.log(`Database '${dbConfig.database}' ready`);
+          
+          db.changeUser({ database: dbConfig.database }, (err) => {
+            if (err) console.error("Error selecting database:", err);
+            else {
+              console.log(`Using database: ${dbConfig.database}`);
 
-        // Create table if it doesn't exist
-        const createTableQuery = `
-          CREATE TABLE IF NOT EXISTS tasks (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            title VARCHAR(255) NOT NULL,
-            description TEXT,
-            status ENUM('pending', 'in-progress', 'completed') DEFAULT 'pending'
-          )`;
-        db.query(createTableQuery, (err) => {
-          if (err) console.error("Error creating tasks table:", err);
-          else console.log("Tasks table is ready");
+              const createTableQuery = `
+                CREATE TABLE IF NOT EXISTS tasks (
+                  id INT AUTO_INCREMENT PRIMARY KEY,
+                  title VARCHAR(255) NOT NULL,
+                  description TEXT,
+                  time TIME,
+                  date DATE,
+                  email_id VARCHAR(255),
+                  status ENUM('pending', 'in-progress', 'completed') DEFAULT 'pending'
+                )`;
+              db.query(createTableQuery, (err) => {
+                if (err) console.error("Error creating tasks table:", err);
+                else console.log("Tasks table is ready");
+              });
+              
+              const addColumnsQuery = `
+                ALTER TABLE tasks 
+                ADD COLUMN IF NOT EXISTS time TIME,
+                ADD COLUMN IF NOT EXISTS date DATE,
+                ADD COLUMN IF NOT EXISTS email_id VARCHAR(255);`;
+              db.query(addColumnsQuery, (err) => {
+                if (err) console.error("Error adding missing columns:", err);
+                else console.log("Checked and added missing columns if necessary");
+              });
+            }
+          });
         });
       }
     });
-
     return db;
   } catch (error) {
     console.error("Error fetching parameters from AWS SSM:", error);
@@ -59,7 +82,6 @@ async function initializeDB() {
 }
 
 initializeDB().then((db) => {
-  // Get all tasks
   app.get("/tasks", (req, res) => {
     db.query("SELECT * FROM tasks", (err, results) => {
       if (err) return res.status(500).send(err);
@@ -67,12 +89,11 @@ initializeDB().then((db) => {
     });
   });
 
-  // Add a new task
   app.post("/tasks", (req, res) => {
-    const { title, description, status } = req.body;
+    const { title, description, time, date, email_id, status } = req.body;
     db.query(
-      "INSERT INTO tasks (title, description, status) VALUES (?, ?, ?)",
-      [title, description, status || "pending"],
+      "INSERT INTO tasks (title, description, time, date, email_id, status) VALUES (?, ?, ?, ?, ?, ?)",
+      [title, description, time, date, email_id, status],
       (err, result) => {
         if (err) return res.status(500).send(err);
         res.json({ message: "Task added", id: result.insertId });
@@ -80,26 +101,62 @@ initializeDB().then((db) => {
     );
   });
 
-  // ✅ Mark a task as completed
   app.patch("/tasks/:id", (req, res) => {
-    const { status } = req.body;
-    db.query(
-      "UPDATE tasks SET status = ? WHERE id = ?",
-      [status, req.params.id],
-      (err, result) => {
-        if (err) return res.status(500).send(err);
-        res.json({ message: "Task status updated" });
-      }
-    );
+    db.query("UPDATE tasks SET status = 'completed' WHERE id = ?", [req.params.id], (err) => {
+      if (err) return res.status(500).send(err);
+      res.json({ message: "Task marked as completed" });
+    });
   });
 
-  // Delete a task
   app.delete("/tasks/:id", (req, res) => {
-    db.query("DELETE FROM tasks WHERE id = ?", [req.params.id], (err, result) => {
+    db.query("DELETE FROM tasks WHERE id = ?", [req.params.id], (err) => {
       if (err) return res.status(500).send(err);
       res.json({ message: "Task deleted" });
     });
   });
+
+  function checkPendingTasks() {
+    db.query("SELECT * FROM tasks WHERE status = 'pending'", (err, results) => {
+      if (err) {
+        console.error("Error fetching pending tasks:", err);
+        return;
+      }
+      const now = new Date();
+      results.forEach(task => {
+        const taskDateTime = new Date(`${task.date}T${task.time}`);
+        if (taskDateTime - now <= 600000) {
+          sendReminderEmail(task.email_id, task.title, task.description);
+        }
+      });
+    });
+  }
+
+  function sendReminderEmail(email, title, description) {
+    let transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: "namraptl25@gmail.com",
+        pass: "N@mrap@tel2511"
+      }
+    });
+
+    let mailOptions = {
+      from: "your-email@gmail.com",
+      to: email,
+      subject: "Task Pending Reminder",
+      text: `Your task '${title}' is still pending. Description: ${description}`
+    };
+
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        console.error("Error sending email:", error);
+      } else {
+        console.log("Reminder email sent:", info.response);
+      }
+    });
+  }
+
+  setInterval(checkPendingTasks, 60000);
 
   app.listen(5000, () => console.log("Server running on port 5000"));
 });
